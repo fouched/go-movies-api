@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/golang-jwt/jwt/v5"
+	"net/http"
 	"time"
 )
 
@@ -78,4 +79,39 @@ func (j *Auth) GenerateTokenPair(user *jwtUser) (TokenPairs, error) {
 
 	// Return TokenPairs
 	return tokenPairs, nil
+}
+
+func (j *Auth) GetRefreshCookie(refreshToken string) *http.Cookie {
+	// we don't want a cookie that it readable by JS
+	// it should be http only and secure
+	return &http.Cookie{
+		Name:     j.CookieName,
+		Path:     j.CookiePath,
+		Value:    refreshToken,
+		Expires:  time.Now().Add(j.RefreshExpiry),
+		MaxAge:   int(j.RefreshExpiry.Seconds()),
+		SameSite: http.SameSiteStrictMode,
+		Domain:   j.CookieDomain,
+		HttpOnly: true,
+		// in development since we will be on
+		// localhost below will default to false
+		Secure: true,
+	}
+}
+
+func (j *Auth) GetExpiredRefreshCookie() *http.Cookie {
+	// this is how you delete cookies
+	// set its max age to -1 and
+	// expires to something in the past
+	return &http.Cookie{
+		Name:     j.CookieName,
+		Path:     j.CookiePath,
+		Value:    "",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		SameSite: http.SameSiteStrictMode,
+		Domain:   j.CookieDomain,
+		HttpOnly: true,
+		Secure:   true,
+	}
 }
