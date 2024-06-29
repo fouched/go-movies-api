@@ -12,4 +12,6 @@ type Movie struct {
 	Image       string    `json:"image"`
 	CreatedAt   time.Time `json:"-"` // the dash means json ignore
 	UpdatedAt   time.Time `json:"-"`
+	Genres      []*Genre  `json:"genres,omitempty"`
+	GenresArray []int     `json:"genres_array,omitempty"` // for convenience in JS
 }

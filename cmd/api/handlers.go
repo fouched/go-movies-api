@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"github.com/fouched/go-movies-api/internal/models"
 	"github.com/fouched/go-movies-api/internal/repo"
+	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"strconv"
@@ -23,7 +25,6 @@ func (app *application) Home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *application) AllMovies(w http.ResponseWriter, r *http.Request) {
-
 	movies, err := repo.AllMovies()
 	if err != nil {
 		_ = app.errorJSON(w, err)
@@ -81,7 +82,6 @@ func (app *application) authenticate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *application) refreshToken(w http.ResponseWriter, r *http.Request) {
-
 	for _, cookie := range r.Cookies() {
 		if cookie.Name == app.auth.CookieName {
 			claims := &Claims{}
@@ -140,4 +140,46 @@ func (app *application) MovieCatalogue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = app.writeJSON(w, http.StatusOK, movies)
+}
+
+func (app *application) GetMovie(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	movieID, err := strconv.Atoi(id)
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	movie, err := repo.GetMovieByID(movieID)
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	_ = app.writeJSON(w, http.StatusOK, movie)
+}
+
+func (app *application) GetMovieForEdit(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	movieID, err := strconv.Atoi(id)
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	movie, genres, err := repo.GetMovieByIDForEdit(movieID)
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	var payload = struct {
+		Movie  *models.Movie   `json:"movie"`
+		Genres []*models.Genre `json:"genres"`
+	}{
+		movie,
+		genres,
+	}
+
+	_ = app.writeJSON(w, http.StatusOK, payload)
 }
