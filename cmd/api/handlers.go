@@ -183,3 +183,13 @@ func (app *application) GetMovieForEdit(w http.ResponseWriter, r *http.Request) 
 
 	_ = app.writeJSON(w, http.StatusOK, payload)
 }
+
+func (app *application) AllGenres(w http.ResponseWriter, r *http.Request) {
+	genres, err := repo.GetAllGenres()
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	_ = app.writeJSON(w, http.StatusOK, genres)
+}

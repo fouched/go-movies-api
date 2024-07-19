@@ -184,7 +184,6 @@ func GetMovieByIDForEdit(id int) (*models.Movie, []*models.Genre, error) {
 	movie.Genres = genres
 	movie.GenresArray = genresArray
 
-	var allGenres []*models.Genre
 	query = "select id, genre from genres order by genre"
 	gRows, err := db.QueryContext(ctx, query)
 	if err != nil {
@@ -192,6 +191,7 @@ func GetMovieByIDForEdit(id int) (*models.Movie, []*models.Genre, error) {
 	}
 	defer gRows.Close()
 
+	var allGenres []*models.Genre
 	for gRows.Next() {
 		var g models.Genre
 		err := gRows.Scan(
@@ -205,4 +205,33 @@ func GetMovieByIDForEdit(id int) (*models.Movie, []*models.Genre, error) {
 	}
 
 	return &movie, allGenres, nil
+}
+
+func GetAllGenres() ([]*models.Genre, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	query := `select id, genre, created_at, updated_at from genres order by genre`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var genres []*models.Genre
+	for rows.Next() {
+		var g models.Genre
+		err := rows.Scan(
+			&g.ID,
+			&g.Genre,
+			&g.CreatedAt,
+			&g.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		genres = append(genres, &g)
+	}
+
+	return genres, nil
 }
