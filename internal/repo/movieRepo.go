@@ -235,3 +235,51 @@ func GetAllGenres() ([]*models.Genre, error) {
 
 	return genres, nil
 }
+
+func InsertMovie(movie *models.Movie) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	stmt := `insert into movies (title, description, release_date, runtime, mpaa_rating, image, created_at, updated_at) 
+			values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`
+
+	var id int
+
+	err := db.QueryRowContext(ctx, stmt,
+		movie.Title,
+		movie.Description,
+		movie.ReleaseDate,
+		movie.RunTime,
+		movie.MPAARating,
+		movie.Image,
+		movie.CreatedAt,
+		movie.UpdatedAt,
+	).Scan(&id)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+
+func UpdateMovieGenres(id int, genreIDs []int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+
+	stmt := `delete from movies_genres where movie_id = $1`
+	_, err := db.ExecContext(ctx, stmt, id)
+	if err != nil {
+		return err
+	}
+
+	for _, n := range genreIDs {
+		stmt = `insert into movies_genres (movie_id, genre_id) values ($1, $2)`
+		_, err = db.ExecContext(ctx, stmt, id, n)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

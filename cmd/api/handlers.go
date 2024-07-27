@@ -1,13 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/fouched/go-movies-api/internal/models"
 	"github.com/fouched/go-movies-api/internal/repo"
 	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
+	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"strconv"
+	"time"
 )
 
 func (app *application) Home(w http.ResponseWriter, r *http.Request) {
@@ -43,21 +49,21 @@ func (app *application) authenticate(w http.ResponseWriter, r *http.Request) {
 
 	err := app.readJSON(w, r, &requestPayload)
 	if err != nil {
-		app.errorJSON(w, err, http.StatusBadRequest)
+		_ = app.errorJSON(w, err, http.StatusBadRequest)
 		return
 	}
 
 	// validate user against db
 	user, err := repo.GetUserByEmail(requestPayload.Email)
 	if err != nil {
-		app.errorJSON(w, errors.New("invalid credentials"), http.StatusUnauthorized)
+		_ = app.errorJSON(w, errors.New("invalid credentials"), http.StatusUnauthorized)
 		return
 	}
 
 	// check password
 	valid, err := user.PasswordMatches(requestPayload.Password)
 	if err != nil || !valid {
-		app.errorJSON(w, errors.New("invalid credentials"), http.StatusUnauthorized)
+		_ = app.errorJSON(w, errors.New("invalid credentials"), http.StatusUnauthorized)
 		return
 	}
 
@@ -71,14 +77,14 @@ func (app *application) authenticate(w http.ResponseWriter, r *http.Request) {
 	// generate token
 	tokens, err := app.auth.GenerateTokenPair(&u)
 	if err != nil {
-		app.errorJSON(w, err)
+		_ = app.errorJSON(w, err)
 		return
 	}
 
 	refreshCookie := app.auth.GetRefreshCookie(tokens.RefreshToken)
 	http.SetCookie(w, refreshCookie)
 
-	app.writeJSON(w, http.StatusAccepted, tokens)
+	_ = app.writeJSON(w, http.StatusAccepted, tokens)
 }
 
 func (app *application) refreshToken(w http.ResponseWriter, r *http.Request) {
@@ -91,20 +97,20 @@ func (app *application) refreshToken(w http.ResponseWriter, r *http.Request) {
 				return []byte(app.JWTSecret), nil
 			})
 			if err != nil {
-				app.errorJSON(w, errors.New("unauthorized"), http.StatusUnauthorized)
+				_ = app.errorJSON(w, errors.New("unauthorized"), http.StatusUnauthorized)
 				return
 			}
 
 			// get user id from token claims
 			userID, err := strconv.Atoi(claims.Subject)
 			if err != nil {
-				app.errorJSON(w, errors.New("unknown user"), http.StatusUnauthorized)
+				_ = app.errorJSON(w, errors.New("unknown user"), http.StatusUnauthorized)
 				return
 			}
 
 			user, err := repo.GetUserByID(userID)
 			if err != nil {
-				app.errorJSON(w, errors.New("unknown user"), http.StatusUnauthorized)
+				_ = app.errorJSON(w, errors.New("unknown user"), http.StatusUnauthorized)
 				return
 			}
 
@@ -116,7 +122,7 @@ func (app *application) refreshToken(w http.ResponseWriter, r *http.Request) {
 
 			tokenPairs, err := app.auth.GenerateTokenPair(&u)
 			if err != nil {
-				app.errorJSON(w, errors.New("error generating tokens"), http.StatusUnauthorized)
+				_ = app.errorJSON(w, errors.New("error generating tokens"), http.StatusUnauthorized)
 				return
 			}
 
@@ -146,13 +152,13 @@ func (app *application) GetMovie(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	movieID, err := strconv.Atoi(id)
 	if err != nil {
-		app.errorJSON(w, err)
+		_ = app.errorJSON(w, err)
 		return
 	}
 
 	movie, err := repo.GetMovieByID(movieID)
 	if err != nil {
-		app.errorJSON(w, err)
+		_ = app.errorJSON(w, err)
 		return
 	}
 
@@ -163,13 +169,13 @@ func (app *application) GetMovieForEdit(w http.ResponseWriter, r *http.Request) 
 	id := chi.URLParam(r, "id")
 	movieID, err := strconv.Atoi(id)
 	if err != nil {
-		app.errorJSON(w, err)
+		_ = app.errorJSON(w, err)
 		return
 	}
 
 	movie, genres, err := repo.GetMovieByIDForEdit(movieID)
 	if err != nil {
-		app.errorJSON(w, err)
+		_ = app.errorJSON(w, err)
 		return
 	}
 
@@ -187,9 +193,94 @@ func (app *application) GetMovieForEdit(w http.ResponseWriter, r *http.Request) 
 func (app *application) AllGenres(w http.ResponseWriter, r *http.Request) {
 	genres, err := repo.GetAllGenres()
 	if err != nil {
-		app.errorJSON(w, err)
+		_ = app.errorJSON(w, err)
 		return
 	}
 
 	_ = app.writeJSON(w, http.StatusOK, genres)
+}
+
+func (app *application) InsertMovie(w http.ResponseWriter, r *http.Request) {
+	var movie models.Movie
+
+	err := app.readJSON(w, r, &movie)
+	if err != nil {
+		_ = app.errorJSON(w, err)
+		return
+	}
+
+	// try to get an image
+	movie = app.getPoster(movie)
+
+	movie.CreatedAt = time.Now()
+	movie.UpdatedAt = time.Now()
+
+	// insert the movie
+	newID, err := repo.InsertMovie(&movie)
+	if err != nil {
+		_ = app.errorJSON(w, err)
+		return
+	}
+
+	// handle genres
+	err = repo.UpdateMovieGenres(newID, movie.GenresArray)
+	if err != nil {
+		_ = app.errorJSON(w, err)
+		return
+	}
+
+	resp := JSONResponse{
+		Error:   false,
+		Message: "Movie updated",
+	}
+
+	app.writeJSON(w, http.StatusAccepted, resp)
+}
+
+func (app *application) getPoster(movie models.Movie) models.Movie {
+	type TheMovieDB struct {
+		Page    int `json:"page"`
+		Results []struct {
+			PosterPath string `json:"poster_path"`
+		} `json:"results"`
+	}
+
+	client := http.Client{}
+	theUrl := fmt.Sprintf("https://api.themoviedb.org/3/search/movie?api_key=%s", app.APIKey)
+
+	req, err := http.NewRequest("GET", theUrl+"&query="+url.QueryEscape(movie.Title), nil)
+	if err != nil {
+		// api does not have the movie
+		log.Println(err)
+		return movie
+	}
+
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Println(err)
+		return movie
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Println(err)
+		return movie
+	}
+
+	var responseObject TheMovieDB
+	err = json.Unmarshal(bodyBytes, &responseObject)
+	if err != nil {
+		log.Println(err)
+		return movie
+	}
+
+	if len(responseObject.Results) > 0 {
+		movie.Image = responseObject.Results[0].PosterPath
+	}
+
+	return movie
 }
