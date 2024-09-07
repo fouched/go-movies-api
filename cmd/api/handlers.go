@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/fouched/go-movies-api/internal/graph"
 	"github.com/fouched/go-movies-api/internal/models"
 	"github.com/fouched/go-movies-api/internal/repo"
 	"github.com/go-chi/chi/v5"
@@ -363,4 +364,33 @@ func (app *application) AllMoviesByGenre(w http.ResponseWriter, r *http.Request)
 	}
 
 	app.writeJSON(w, http.StatusOK, movies)
+}
+
+func (app *application) moviesGraphQL(w http.ResponseWriter, r *http.Request) {
+
+	// populate Graph type with the movies
+	movies, _ := repo.AllMovies()
+
+	// get the query from request
+	q, _ := io.ReadAll(r.Body)
+	query := string(q)
+
+	// create type *graph.Graph
+	g := graph.New(movies)
+
+	// set query string on the graph
+	g.QueryString = query
+
+	// perform query
+	resp, err := g.Query()
+	if err != nil {
+		app.errorJSON(w, err)
+		return
+	}
+
+	// send response
+	j, _ := json.MarshalIndent(resp, "", "\t")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(j)
 }
